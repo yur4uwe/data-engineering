@@ -1,3 +1,5 @@
+from string import printable
+
 import pandas as pd
 
 df = pd.read_csv("data_cleaned.csv")
@@ -81,4 +83,11 @@ corr = corr_matrix.iloc[0, 1]
 print("Correlation (discount_amount vs total):", round(corr, 4))
 print(
     "Interpretation: near 0 => weak linear relation; positive/negative show direction"
+)
+
+# percentage of unique customers who over 25 years old and have made at least 1 order with a discount
+customers = df[(df["age"] > 25) & (df["discount_amount"] > 0)]
+print(
+    "Percentage of unique customers over 25 with at least 1 discount order: "
+    f"{len(customers['customer_id'].unique()) / len(df['customer_id'].unique()) * 100:.2f}%"
 )
