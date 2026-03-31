@@ -6,15 +6,15 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix
 import joblib
 
-# 1. Завантаження даних (Breast Cancer Wisconsin)
-url = "https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/wdbc.data"
+# Завантажуємо датасет діабету (Pima Indians)
+url = "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv"
 df = pd.read_csv(url, header=None)
 
-# Відділяємо ID (колонка 0), клас (колонка 1) та характеристики (колонки 2-31)
-X = df.iloc[:, 2:].values
-y = df.iloc[:, 1].values  # 'M' - malignant (злоякісна), 'B' - benign (доброякісна)
+# Беремо лише 4 інтуїтивно зрозумілі колонки:
+# Глюкоза (1), Кров'яний тиск (2), Індекс маси тіла (5), Вік (7)
+X = df.iloc[:, [1, 2, 5, 7]].values
+y = df.iloc[:, 8].values  # 0 - здорова людина, 1 - діабет
 
-# 2. Розбиття та стандартизація
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
@@ -26,7 +26,7 @@ best_accuracy = 0
 best_pca_n = 1
 
 print("--- Оцінка точності для різної кількості компонент PCA ---")
-for n in range(1, 11):
+for n in range(1, 5):
     # Використання PCA
     pca = PCA(n_components=n)
     X_train_pca = pca.fit_transform(X_train_scaled)
@@ -48,9 +48,9 @@ for n in range(1, 11):
 print(f"\nНайкраща кількість компонент: {best_pca_n} (Точність: {best_accuracy:.4f})")
 
 # Зберігаємо модель з найкращими параметрами (використовуємо 10 компонент для прикладу)
-pca_final = PCA(n_components=10)
+pca_final = PCA(n_components=4)
 X_train_final = pca_final.fit_transform(X_train_scaled)
-clf_final = DecisionTreeClassifier(random_state=42).fit(X_train_final, y_train)
+clf_final = DecisionTreeClassifier(random_state=230420069).fit(X_train_final, y_train)
 
 joblib.dump(scaler, "scaler.pkl")
 joblib.dump(pca_final, "pca.pkl")
