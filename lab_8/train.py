@@ -6,14 +6,27 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix
 import joblib
 
+
+def print_formatted_cm(cm, class_names):
+    print("Confusion Matrix:")
+    print(f"{'':>18} | Прогноз: {class_names[0]:<12} | Прогноз: {class_names[1]}")
+    print("-" * 60)
+    print(
+        f"Фактично: {class_names[0]:<8} | {cm[0, 0]:<21} | {cm[0, 1]} (Хибна тривога)"
+    )
+    print(f"Фактично: {class_names[1]:<8} | {cm[1, 0]:<11} (Пропуск) | {cm[1, 1]}")
+    print("-" * 60)
+
+
 # Завантажуємо датасет діабету (Pima Indians)
-url = "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv"
-df = pd.read_csv(url, header=None)
+# url = "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv"
+df = pd.read_csv("pima-indians-diabetes.data.csv")
+df.head()
+df.info()
 
 # Беремо лише 4 інтуїтивно зрозумілі колонки:
-# Глюкоза (1), Кров'яний тиск (2), Індекс маси тіла (5), Вік (7)
-X = df.iloc[:, [1, 2, 5, 7]].values
-y = df.iloc[:, 8].values  # 0 - здорова людина, 1 - діабет
+X = df[["Glucose", "BloodPressure", "BMI", "Age"]].values
+y = df["Outcome"].values  # 0 - здорова людина, 1 - діабет
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
@@ -41,6 +54,8 @@ for n in range(1, 5):
     cm = confusion_matrix(y_test, y_pred)
 
     print(f"Компонент: {n} | Точність: {acc:.4f}")
+    print_formatted_cm(cm, class_names=["Здорова", "Діабет"])
+    print()
     if acc > best_accuracy:
         best_accuracy = acc
         best_pca_n = n
