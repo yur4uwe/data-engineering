@@ -4,19 +4,8 @@ from pymavlink import mavutil
 import glob
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-def is_valid_bin(filepath):
-    try:
-        with open(filepath, 'rb') as f:
-            header = f.read(2)
-            return header == b'\x89\x44' or header == b'\x89\x00'
-    except:
-        return False
 
 def parse_bin_file(filepath):
-    if not is_valid_bin(filepath):
-        print(f"Skipping {filepath}: Not a valid ArduPilot binary log.")
-        return pd.DataFrame()
-        
     print(f"Parsing {filepath}...")
     try:
         mlog = mavutil.mavlink_connection(filepath)
@@ -85,16 +74,20 @@ def parse_bin_file(filepath):
     combined_df = combined_df.ffill().bfill()
     return combined_df
 
+
 def process_single_file(args):
     filepath, flight_id = args
     try:
         df = parse_bin_file(filepath)
-        if not df.empty:
-            df["flight_id"] = flight_id
-            return df
+        if df.empty:
+            return None
+
+        df["flight_id"] = flight_id
+        return df
     except Exception as e:
         print(f"Error in process_single_file for {filepath}: {e}")
     return None
+
 
 def etl_pipeline(input_dir="data/raw", output_dir="data/processed"):
     os.makedirs(output_dir, exist_ok=True)
@@ -102,39 +95,47 @@ def etl_pipeline(input_dir="data/raw", output_dir="data/processed"):
     bin_files = glob.glob(os.path.join(input_dir, "*.[bB][iI][nN]"))
     if not bin_files:
         print(f"No binary logs found in {input_dir}.")
-        return False
-        
+        return None
+
     print(f"Found {len(bin_files)} files. Starting parallel processing...")
-    
+
     all_flights = []
     file_args = [(f, i) for i, f in enumerate(bin_files)]
-    
-    # Use ProcessPoolExecutor to utilize all available CPU cores
+
     with ProcessPoolExecutor() as executor:
         futures = [executor.submit(process_single_file, arg) for arg in file_args]
         for future in as_completed(futures):
             result = future.result()
-            if result is not None:
-                all_flights.append(result)
+            if result is None:
+                continue
+
+            all_flights.append(result)
 
     if all_flights:
         print(f"Concatenating {len(all_flights)} parsed flights...")
         final_dataset = pd.concat(all_flights, ignore_index=True)
-        output_file = os.path.join(output_dir, "telemetry_dataset.csv")
-        final_dataset.to_csv(output_file, index=False)
-        print(f"ETL completed. Saved dataset to {output_file}")
-        return True
+        # We return the dataframe to be loaded by the Load stage
+        return final_dataset
     else:
         print("No data extracted.")
-        return False
+        return None
+
 
 if __name__ == "__main__":
     import sys
+    from load import load_to_analytical_store, archive_raw_logs
+
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    success = etl_pipeline(
+    df = etl_pipeline(
         input_dir=os.path.join(base_dir, "data/raw"),
-        output_dir=os.path.join(base_dir, "data/processed")
+        output_dir=os.path.join(base_dir, "data/processed"),
     )
-    if not success:
+
+    if df is None:
         sys.exit(1)
+
+    # Load the data
+    if load_to_analytical_store(df):
+        # Archive the raw files only if load succeeded
+        archive_raw_logs()
     sys.exit(0)

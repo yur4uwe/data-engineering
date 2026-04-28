@@ -6,17 +6,25 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 
-def perform_analysis(
-    input_file="data/processed/telemetry_dataset.csv", output_dir="plots"
-):
+import sqlite3
+
+def perform_analysis(db_path="data/uav_analytics.db", output_dir="plots"):
     os.makedirs(output_dir, exist_ok=True)
 
-    if not os.path.exists(input_file):
-        print(f"Input file {input_file} not found.")
+    if not os.path.exists(db_path):
+        print(f"Database {db_path} not found.")
         return
 
-    print(f"Loading data from {input_file}...")
-    df = pd.read_csv(input_file)
+    print(f"Loading data from {db_path}...")
+    try:
+        conn = sqlite3.connect(db_path)
+        # Load most recent data or entire table
+        df = pd.read_sql_query("SELECT * FROM telemetry", conn)
+        conn.close()
+    except Exception as e:
+        print(f"Failed to read from SQLite: {e}")
+        return
+
 
     if df.empty:
         print("Dataset is empty.")
