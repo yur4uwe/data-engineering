@@ -1,0 +1,8 @@
+requests
+beautifulsoup4
+pandas
+pymavlink
+matplotlib
+seaborn
+scikit-learn
+apache-airflow
