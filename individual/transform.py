@@ -1,8 +1,10 @@
-import os
-import pandas as pd
-from pymavlink import mavutil
 import glob
+import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
+
+import pandas as pd
+from load import is_file_processed, load_to_analytical_store, mark_as_processed
+from pymavlink import mavutil
 
 
 def parse_bin_file(filepath):
@@ -24,7 +26,7 @@ def parse_bin_file(filepath):
                 break
 
             m_type = m.get_type()
-            m_dict = m.to_dict()
+            m_dict = m.to_dict()  # pyright: ignore[reportOptionalCall, reportCallIssue]
 
             if m_type == "ATT" or m_type == "ATTITUDE":
                 data["ATT"].append(m_dict)
@@ -89,15 +91,28 @@ def process_single_file(args):
     return None
 
 
-def etl_pipeline(input_dir="data/raw", output_dir="data/processed"):
+def etl_pipeline(
+    input_dir="data/raw", output_dir="data/processed", db_path="data/uav_analytics.db"
+):
     os.makedirs(output_dir, exist_ok=True)
 
-    bin_files = glob.glob(os.path.join(input_dir, "*.[bB][iI][nN]"))
-    if not bin_files:
-        print(f"No binary logs found in {input_dir}.")
-        return None
+    all_bin_files = glob.glob(os.path.join(input_dir, "*.[bB][iI][nN]"))
+    bin_files = [
+        f for f in all_bin_files if not is_file_processed(os.path.basename(f), db_path)
+    ]
 
-    print(f"Found {len(bin_files)} files. Starting parallel processing...")
+    if not bin_files:
+        if all_bin_files:
+            print(
+                f"All {len(all_bin_files)} files in {input_dir} have already been processed."
+            )
+        else:
+            print(f"No binary logs found in {input_dir}.")
+        return None, []
+
+    print(
+        f"Found {len(bin_files)} new files to process. Starting parallel processing..."
+    )
 
     all_flights = []
     file_args = [(f, i) for i, f in enumerate(bin_files)]
@@ -111,31 +126,33 @@ def etl_pipeline(input_dir="data/raw", output_dir="data/processed"):
 
             all_flights.append(result)
 
+    processed_filenames = [os.path.basename(f) for f in bin_files]
+
     if all_flights:
         print(f"Concatenating {len(all_flights)} parsed flights...")
         final_dataset = pd.concat(all_flights, ignore_index=True)
-        # We return the dataframe to be loaded by the Load stage
-        return final_dataset
+        return final_dataset, processed_filenames
     else:
-        print("No data extracted.")
-        return None
+        print("No data extracted from new files.")
+        return None, []
 
 
 if __name__ == "__main__":
     import sys
-    from load import load_to_analytical_store, archive_raw_logs
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    df = etl_pipeline(
+    db_path = os.path.join(base_dir, "data/uav_analytics.db")
+    df, processed_files = etl_pipeline(
         input_dir=os.path.join(base_dir, "data/raw"),
         output_dir=os.path.join(base_dir, "data/processed"),
+        db_path=db_path,
     )
 
     if df is None:
-        sys.exit(1)
+        sys.exit(0)  # Not an error, just no new data
 
     # Load the data
-    if load_to_analytical_store(df):
-        # Archive the raw files only if load succeeded
-        archive_raw_logs()
+    if load_to_analytical_store(df, db_path=db_path):
+        # Mark as processed only if load succeeded
+        mark_as_processed(processed_files, db_path=db_path)
     sys.exit(0)

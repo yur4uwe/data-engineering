@@ -1,15 +1,18 @@
 import os
-import pandas as pd
+import sqlite3
+
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 
-import sqlite3
-
-def perform_analysis(db_path="data/uav_analytics.db", output_dir="plots"):
+def perform_analysis(input_file, db_path="data/uav_analytics.db", output_dir="plots"):
     os.makedirs(output_dir, exist_ok=True)
+    if not os.path.exists(input_file):
+        print("Input file doesn't exist")
+        return
 
     if not os.path.exists(db_path):
         print(f"Database {db_path} not found.")
@@ -24,7 +27,6 @@ def perform_analysis(db_path="data/uav_analytics.db", output_dir="plots"):
     except Exception as e:
         print(f"Failed to read from SQLite: {e}")
         return
-
 
     if df.empty:
         print("Dataset is empty.")

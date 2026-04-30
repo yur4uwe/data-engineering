@@ -1,10 +1,9 @@
-# NOTE: This DAG is an original to which symlink points in dedicated DAGs
-# directory in the arflow HOME directory.
-from pathlib import Path
-from airflow import DAG
-from airflow.operators.bash import BashOperator
-from datetime import datetime, timedelta
 import os
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from airflow.operators.bash import BashOperator
+from airflow import DAG
 
 default_args = {
     "owner": "airflow",
@@ -19,51 +18,35 @@ default_args = {
 dag = DAG(
     "uav_telemetry_pipeline",
     default_args=default_args,
-    description="Automated UAV Telemetry Analytics Pipeline",
+    description="Multi-stage UAV Telemetry Analytics Pipeline",
     schedule_interval=timedelta(days=1),
     catchup=False,
 )
 
-# Base directory for the pipeline scripts
-# dags -> airflow -> root -> individual
 BASE_DIR = Path(__file__).parent.parent.parent / "individual"
+PIPELINE_SCRIPT = os.path.join(BASE_DIR, "pipeline.py")
+PYTHON_EXEC = "/home/yur4uwe/uni/engeneering-data/.venv/bin/python"
 
-# We use Airflow's exit code 99 to signal a skip in newer Airflow versions, 
-# or we just let it fail and handle the "preemptive" logic inside the scripts.
-# However, to meet the requirement of "preemptively ending" gracefully, 
-# we'll use the ShortCircuitOperator again but correctly defined.
-
-from airflow.operators.python import ShortCircuitOperator
-
-def run_script(script_name):
-    import subprocess
-    script_path = os.path.join(BASE_DIR, script_name)
-    print(f"Executing: python {script_path}")
-    result = subprocess.run(["python", script_path], capture_output=True, text=True)
-    print(f"STDOUT: {result.stdout}")
-    print(f"STDERR: {result.stderr}")
-    # Return True if returncode is 0, which allows the DAG to continue.
-    # Return False if returncode is non-zero (like 1 when no data), which short-circuits.
-    return result.returncode == 0
-
-extract_task = ShortCircuitOperator(
-    task_id="extract_data",
-    python_callable=run_script,
-    op_args=["extract.py"],
+# Task 1: Extract (Scraping)
+extract_task = BashOperator(
+    task_id="extract",
+    bash_command=f"{PYTHON_EXEC} {PIPELINE_SCRIPT} --step extract --max-downloads 5",
     dag=dag,
 )
 
-transform_task = ShortCircuitOperator(
-    task_id="transform_data",
-    python_callable=run_script,
-    op_args=["transform.py"],
+# Task 2: Transform & Load (ETL + Checkpointing)
+# Note: This is where we ensure files stay in 'raw' by NOT passing --backup
+transform_load_task = BashOperator(
+    task_id="transform_load",
+    bash_command=f"{PYTHON_EXEC} {PIPELINE_SCRIPT} --step transform_load",
     dag=dag,
 )
 
+# Task 3: Analyze (ML + BI)
 analyze_task = BashOperator(
-    task_id="analyze_data",
-    bash_command=f"python {os.path.join(BASE_DIR, 'analyze.py')}",
+    task_id="analyze",
+    bash_command=f"{PYTHON_EXEC} {PIPELINE_SCRIPT} --step analyze",
     dag=dag,
 )
 
-extract_task >> transform_task >> analyze_task
+extract_task >> transform_load_task >> analyze_task

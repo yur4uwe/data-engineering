@@ -4,7 +4,10 @@ import sqlite3
 import shutil
 from datetime import datetime
 
-def load_to_analytical_store(df, db_path="data/uav_analytics.db", table_name="telemetry"):
+
+def load_to_analytical_store(
+    df, db_path="data/uav_analytics.db", table_name="telemetry"
+):
     """
     Loads the structured dataframe into a SQLite database for BI and long-term storage.
     """
@@ -13,15 +16,15 @@ def load_to_analytical_store(df, db_path="data/uav_analytics.db", table_name="te
         return False
 
     print(f"Loading {len(df)} rows into analytical store: {db_path}...")
-    
+
     # Ensure directory exists
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    
+
     # Use SQLite for structured, queryable storage
     try:
         conn = sqlite3.connect(db_path)
-        # Append data to the table
-        df.to_sql(table_name, conn, if_exists='append', index=False)
+        # Append data to the table, preserving the index (timestamps)
+        df.to_sql(table_name, conn, if_exists="append", index=True, index_label="timestamp_us")
         conn.close()
         print(f"Successfully loaded data into table '{table_name}'.")
         return True
@@ -29,25 +32,61 @@ def load_to_analytical_store(df, db_path="data/uav_analytics.db", table_name="te
         print(f"Failed to load data to SQLite: {e}")
         return False
 
+
+def is_file_processed(filename, db_path="data/uav_analytics.db"):
+    """Checks if a file has already been processed and loaded."""
+    if not os.path.exists(db_path):
+        return False
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS processed_files (filename TEXT PRIMARY KEY, processed_at TIMESTAMP)")
+        cursor.execute("SELECT 1 FROM processed_files WHERE filename = ?", (filename,))
+        result = cursor.fetchone()
+        conn.close()
+        return result is not None
+    except Exception as e:
+        print(f"Error checking checkpoint: {e}")
+        return False
+
+def mark_as_processed(filenames, db_path="data/uav_analytics.db"):
+    """Records filenames in the checkpoint table."""
+    if not filenames:
+        return
+    
+    print(f"Marking {len(filenames)} files as processed in metadata...")
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS processed_files (filename TEXT PRIMARY KEY, processed_at TIMESTAMP)")
+        
+        now = datetime.now().isoformat()
+        data = [(f, now) for f in filenames]
+        cursor.executemany("INSERT OR REPLACE INTO processed_files VALUES (?, ?)", data)
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Failed to update checkpoints: {e}")
+
 def archive_raw_logs(raw_dir="data/raw", archive_dir="data/archive"):
     """
-    Moves processed logs to an archive directory to prevent re-processing.
+    Optional: Copies processed logs to archive instead of moving them,
+    keeping the raw directory populated.
     """
     os.makedirs(archive_dir, exist_ok=True)
-    
-    files = [f for f in os.listdir(raw_dir) if f.lower().endswith('.bin')]
+    files = [f for f in os.listdir(raw_dir) if f.lower().endswith(".bin")]
     if not files:
         return
-        
-    print(f"Archiving {len(files)} logs...")
+
+    print(f"Backing up {len(files)} logs to archive...")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_archive = os.path.join(archive_dir, timestamp)
     os.makedirs(run_archive, exist_ok=True)
-    
+
     for f in files:
-        shutil.move(os.path.join(raw_dir, f), os.path.join(run_archive, f))
-    
-    print(f"Logs moved to {run_archive}")
+        shutil.copy2(os.path.join(raw_dir, f), os.path.join(run_archive, f))
+
 
 if __name__ == "__main__":
     # This script would normally be called by the pipeline with a dataframe
