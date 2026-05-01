@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+trap 'kill $(jobs -p)' EXIT
+
 echo "Setting up environment"
 if ! command -v python &> /dev/null; then
     source ~/uni/engeneering-data/.venv/bin/activate
@@ -16,5 +18,13 @@ if ! command -v airflow &> /dev/null; then
     exit 1
 fi
 
+airflow scheduler &> /dev/null &
+SCHEDULER_PID="$!"
+echo "Scheduler started with PID: ${SCHEDULER_PID}"
 
-exec "$@"
+airflow webserver --port 8080 &> /dev/null &
+WEBSERVER_PID="$!"
+echo "Webserver started with PID: ${WEBSERVER_PID}"
+
+sleep infinity &
+wait

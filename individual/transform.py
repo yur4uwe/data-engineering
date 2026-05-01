@@ -48,6 +48,7 @@ def parse_bin_file(filepath):
             df.set_index("TimeUS", inplace=True)
         elif "time_boot_ms" in df.columns:
             df.set_index("time_boot_ms", inplace=True)
+        df.index.name = "timestamp_us"
         return df
 
     df_att = set_time_index(df_att)
@@ -74,6 +75,7 @@ def parse_bin_file(filepath):
         )
 
     combined_df = combined_df.ffill().bfill()
+    combined_df.reset_index(inplace=True)
     return combined_df
 
 

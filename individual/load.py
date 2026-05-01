@@ -23,8 +23,36 @@ def load_to_analytical_store(
     # Use SQLite for structured, queryable storage
     try:
         conn = sqlite3.connect(db_path)
-        # Append data to the table, preserving the index (timestamps)
-        df.to_sql(table_name, conn, if_exists="append", index=True, index_label="timestamp_us")
+
+        # Check if table exists and handle schema evolution (new columns)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'"
+        )
+        if cursor.fetchone():
+            # Get existing columns
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            existing_cols = [info[1] for info in cursor.fetchall()]
+
+            # Find new columns in DF
+            for col in df.columns:
+                if col in existing_cols:
+                    continue
+
+                print(f"Adding new column '{col}' to table '{table_name}'...")
+                # Basic type mapping: float -> REAL, int -> INTEGER, others -> TEXT
+                col_type = "TEXT"
+                if pd.api.types.is_float_dtype(df[col]):
+                    col_type = "REAL"
+                elif pd.api.types.is_integer_dtype(df[col]):
+                    col_type = "INTEGER"
+
+                cursor.execute(
+                    f'ALTER TABLE {table_name} ADD COLUMN "{col}" {col_type}'
+                )
+
+        # Append data to the table
+        df.to_sql(table_name, conn, if_exists="append", index=False)
         conn.close()
         print(f"Successfully loaded data into table '{table_name}'.")
         return True
@@ -40,7 +68,9 @@ def is_file_processed(filename, db_path="data/uav_analytics.db"):
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute("CREATE TABLE IF NOT EXISTS processed_files (filename TEXT PRIMARY KEY, processed_at TIMESTAMP)")
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS processed_files (filename TEXT PRIMARY KEY, processed_at TIMESTAMP)"
+        )
         cursor.execute("SELECT 1 FROM processed_files WHERE filename = ?", (filename,))
         result = cursor.fetchone()
         conn.close()
@@ -49,25 +79,29 @@ def is_file_processed(filename, db_path="data/uav_analytics.db"):
         print(f"Error checking checkpoint: {e}")
         return False
 
+
 def mark_as_processed(filenames, db_path="data/uav_analytics.db"):
     """Records filenames in the checkpoint table."""
     if not filenames:
         return
-    
+
     print(f"Marking {len(filenames)} files as processed in metadata...")
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute("CREATE TABLE IF NOT EXISTS processed_files (filename TEXT PRIMARY KEY, processed_at TIMESTAMP)")
-        
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS processed_files (filename TEXT PRIMARY KEY, processed_at TIMESTAMP)"
+        )
+
         now = datetime.now().isoformat()
         data = [(f, now) for f in filenames]
         cursor.executemany("INSERT OR REPLACE INTO processed_files VALUES (?, ?)", data)
-        
+
         conn.commit()
         conn.close()
     except Exception as e:
         print(f"Failed to update checkpoints: {e}")
+
 
 def archive_raw_logs(raw_dir="data/raw", archive_dir="data/archive"):
     """

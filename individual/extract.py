@@ -7,7 +7,7 @@ from scraper.scrape import scrape_logs
 def are_files_relevant(staging_dir: str):
     if not os.path.exists(staging_dir) or not os.listdir(staging_dir):
         return False
-        
+
     most_recent = datetime(1970, 1, 1)
     paths = os.listdir(staging_dir)
     for file in paths:
@@ -20,7 +20,7 @@ def are_files_relevant(staging_dir: str):
 
     now = datetime.now()
     delta = now - most_recent
-    if delta.days < 5:
+    if delta.days < 1:
         return True
     else:
         return False

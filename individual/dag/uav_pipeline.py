@@ -1,52 +1,58 @@
-import os
-from datetime import datetime, timedelta
-from pathlib import Path
+import sys
 
-from airflow.operators.bash import BashOperator
-from airflow import DAG
+# Add the individual directory to sys.path so Airflow can import your modules
+# This assumes the DAG is running on a worker where the code is available
+INDIVIDUAL_PATH = "/home/yur4uwe/uni/engeneering-data/individual"
+if INDIVIDUAL_PATH not in sys.path:
+    sys.path.append(INDIVIDUAL_PATH)
+
+# Module imports were moved below to establish correct pash
+from datetime import datetime, timedelta  # noqa: E402
+from airflow.decorators import dag, task  # noqa: E402
+from tasks import extract_task, transform_load_task, analyze_task  # noqa: E402
+
 
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
     "start_date": datetime(2023, 1, 1),
-    "email_on_failure": False,
-    "email_on_retry": False,
     "retries": 1,
     "retry_delay": timedelta(minutes=5),
 }
 
-dag = DAG(
+
+@dag(
     "uav_telemetry_pipeline",
     default_args=default_args,
-    description="Multi-stage UAV Telemetry Analytics Pipeline",
+    description="Native Python UAV Telemetry Pipeline",
     schedule_interval=timedelta(days=1),
     catchup=False,
+    tags=["uav", "ml"],
 )
+def uav_pipeline():
 
-BASE_DIR = Path(__file__).parent.parent.parent / "individual"
-PIPELINE_SCRIPT = os.path.join(BASE_DIR, "pipeline.py")
-PYTHON_EXEC = "/home/yur4uwe/uni/engeneering-data/.venv/bin/python"
+    @task
+    def extract():
+        # Calls the function from tasks.py
+        result = extract_task(max_downloads=5)
+        return result["raw_dir"]  # XCom will store this string
 
-# Task 1: Extract (Scraping)
-extract_task = BashOperator(
-    task_id="extract",
-    bash_command=f"{PYTHON_EXEC} {PIPELINE_SCRIPT} --step extract --max-downloads 5",
-    dag=dag,
-)
+    @task
+    def transform_load(raw_dir_path):
+        # Receives raw_dir from the previous task via XCom
+        csv_path = transform_load_task(raw_dir_path)
+        return csv_path
 
-# Task 2: Transform & Load (ETL + Checkpointing)
-# Note: This is where we ensure files stay in 'raw' by NOT passing --backup
-transform_load_task = BashOperator(
-    task_id="transform_load",
-    bash_command=f"{PYTHON_EXEC} {PIPELINE_SCRIPT} --step transform_load",
-    dag=dag,
-)
+    @task
+    def analyze(csv_file_path):
+        # Receives csv_path from the previous task via XCom
+        analyze_task(csv_file_path)
 
-# Task 3: Analyze (ML + BI)
-analyze_task = BashOperator(
-    task_id="analyze",
-    bash_command=f"{PYTHON_EXEC} {PIPELINE_SCRIPT} --step analyze",
-    dag=dag,
-)
+    # Define the flow
+    raw_path = extract()
+    csv_path = transform_load(raw_path)
+    analyze(csv_path)
 
-extract_task >> transform_load_task >> analyze_task
+
+# Instantiate the DAG
+uav_dag = uav_pipeline()
